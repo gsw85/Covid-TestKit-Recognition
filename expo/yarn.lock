@@ -9775,6 +9775,11 @@ react-native-unimodules@~0.14.6:
     unimodules-app-loader "~2.2.0"
     unimodules-task-manager-interface "~6.2.0"
 
+react-native-vision-camera@^2.12.2:
+  version "2.12.2"
+  resolved "https://registry.yarnpkg.com/react-native-vision-camera/-/react-native-vision-camera-2.12.2.tgz#9cd23c334ced4bbc366d7b7744621f6b7a61306f"
+  integrity sha512-z4MXuUQAEF8wOkxk1vLLG4HZyrjg80WKGCdLdmLg6X6Iv/1i3Us27qpH+U6qoM5Jo/sgt9VaSPZ2yrSqW+RQ4g==
+
 react-native@~0.63.2:
   version "0.63.4"
   resolved "https://registry.yarnpkg.com/react-native/-/react-native-0.63.4.tgz#2210fdd404c94a5fa6b423c6de86f8e48810ec36"
