@@ -20,4 +20,6 @@ target 'posenet' do
   # end
   pod 'RNFS', :path => '../node_modules/react-native-fs'
 
+  pod 'react-native-camera', :path => '../node_modules/react-native-camera'
+
 end

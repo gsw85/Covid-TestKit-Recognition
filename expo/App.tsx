@@ -1,63 +1,215 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Image } from 'react-native';
+// ref: https://github.com/Pigrabbit/rn-object-detection/blob/main/App.tsx
+// ref: repos/tfjs-yolov5-example
+
 import * as tf from '@tensorflow/tfjs';
-import { fetch, decodeJpeg } from '@tensorflow/tfjs-react-native';
-import * as mobilenet from '@tensorflow-models/mobilenet';
+import { loadGraphModel } from '@tensorflow/tfjs';
+import { bundleResourceIO, decodeJpeg, fetch } from '@tensorflow/tfjs-react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, Image, SafeAreaView, StatusBar, StyleSheet, View } from 'react-native';
+import { RNCamera } from 'react-native-camera';
+import { CameraContainer } from './src/CameraContainer';
+import { classesDir, threshold, windowWidth } from './src/constants';
+import { ControlPanel } from './src/ControlPanel';
+import { DetectedBox } from './src/DetectedBox';
+import { Header } from './src/Header';
+import { DetectedObject, Prediction } from './src/types';
+
+declare const global: { HermesInternal: null | {} };
+
+const imageWidth = windowWidth;
+
+export const modelJSON = require('./assets/model/model.json');
+// export const modelWeights = [
+//   require('./assets/model/group1-shard1of7.bin'),
+//   require('./assets/model/group1-shard2of7.bin'),
+//   require('./assets/model/group1-shard3of7.bin'),
+//   require('./assets/model/group1-shard4of7.bin'),
+//   require('./assets/model/group1-shard5of7.bin'),
+//   require('./assets/model/group1-shard6of7.bin'),
+//   require('./assets/model/group1-shard7of7.bin'),
+// ];
 
 const App = () => {
-  const [isTfReady, setIsTfReady] = useState(false);
-  const [result, setResult] = useState('');
-  const image = useRef(null);
+  const [model, setModel] = useState<tf.GraphModel | null>(null);
+  const [predictedResult, setPredictedResult] = useState<Prediction>({
+    boxes: [[[]]],
+    scores: [[]],
+    classes: new Int32Array(),
+  });
+  const [detectionObjects, setDetectionObjects] = useState<DetectedObject[]>([]);
 
-  const load = async () => {
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [isReadyToCapture, setIsReadyToCapture] = useState(false);
+  const [isInferencing, setIsInferencing] = useState(false);
+
+  const cameraRef = useRef<RNCamera>(null);
+
+  const inference = async (imageTensor: tf.Tensor3D) => {
+    if (!model) return;
+    if (!imageTensor || isInferencing) return;
     try {
-      // Load mobilenet.
-      await tf.ready();
-      const model = await mobilenet.load();
-      setIsTfReady(true);
+      tf.engine().startScope();
+      console.log('inference begin');
+      const startTime = new Date().getTime();
 
-      // Start inference and show result.
-      const image = require('./basketball.jpg');
-      const imageAssetPath = Image.resolveAssetSource(image);
-      const response = await fetch(imageAssetPath.uri, {}, { isBinary: true });
-      const imageDataArrayBuffer = await response.arrayBuffer();
-      const imageData = new Uint8Array(imageDataArrayBuffer);
-      const imageTensor = decodeJpeg(imageData);
-      const prediction = await model.classify(imageTensor);
-      if (prediction && prediction.length > 0) {
-        setResult(
-          `${prediction[0].className} (${prediction[0].probability.toFixed(3)})`
-        );
-      }
-    } catch (err) {
-      console.log(err);
+      const predictions: tf.Tensor<tf.Rank>[] = (await model.executeAsync(
+        imageTensor.transpose([0, 1, 2]).expandDims(),
+      )) as tf.Tensor<tf.Rank>[];
+
+      const endTime = new Date().getTime();
+      console.log(`inference end, ETC: ${endTime - startTime}ms`);
+
+      const boxes = predictions[5].arraySync() as number[][][];
+      const scores = predictions[1].arraySync() as number[][];
+      const classes = predictions[0].dataSync<'int32'>();
+
+      setPredictedResult({ boxes, scores, classes });
+    } catch (error) {
+      Alert.alert('', error.message, [{ text: 'close', onPress: () => null }]);
+    } finally {
+      tf.engine().endScope();
+      setIsInferencing(false);
     }
   };
 
+  const onRefreshButtonPress = () => {
+    setImageUri(null);
+    setDetectionObjects([]);
+    setPredictedResult({
+      boxes: [[[]]],
+      scores: [[]],
+      classes: new Int32Array(),
+    });
+  };
+
+  const onShootButtonPress = async () => {
+    if (cameraRef.current && isReadyToCapture) {
+      setIsReadyToCapture(false);
+      const data = await cameraRef.current.takePictureAsync({
+        width: 1080,
+        quality: 0.8,
+        fixOrientation: true,
+      });
+      setIsReadyToCapture(true);
+      setImageUri(data.uri);
+    }
+  };
+
+  const onInferenceButtonPress = async () => {
+    if (!imageUri) return;
+    setIsInferencing(true);
+
+    const response = await fetch(imageUri, {}, { isBinary: true });
+    const imageDataArrayBuffer = await response.arrayBuffer();
+    const imageData = new Uint8Array(imageDataArrayBuffer);
+    const imageTensor = decodeJpeg(imageData);
+    await inference(imageTensor);
+  };
+
   useEffect(() => {
-    load();
+    const loadModel = async () => {
+      try {
+        await tf.ready();
+        // const loadedModel = await loadGraphModel(bundleResourceIO(modelJSON, modelWeights));
+        const loadedModel = await loadGraphModel(modelJSON);
+
+        setModel(loadedModel);
+      } catch (error) {
+        Alert.alert('', error.message, [{ text: 'close', onPress: () => null }]);
+      }
+    };
+
+    loadModel();
   }, []);
 
+  useEffect(() => {
+    if (!predictedResult || !predictedResult.scores) return;
+
+    const { boxes, scores, classes } = predictedResult;
+    const currentDetectionObjects: DetectedObject[] = [];
+
+    scores[0].forEach((score, idx) => {
+      if (score > threshold) {
+        console.log('above threshold', score);
+        const bbox = [];
+        const minY = boxes[0][idx][0] * imageWidth;
+        const minX = boxes[0][idx][1] * imageWidth;
+        const maxY = boxes[0][idx][2] * imageWidth;
+        const maxX = boxes[0][idx][3] * imageWidth;
+        bbox[0] = minX;
+        bbox[1] = minY;
+        bbox[2] = maxX - minX;
+        bbox[3] = maxY - minY;
+
+        currentDetectionObjects.push({
+          class: classes[idx],
+          label: classesDir[classes[idx]].name,
+          score: score.toFixed(4),
+          bbox: bbox,
+        });
+      }
+    });
+
+    console.log(currentDetectionObjects);
+    setDetectionObjects(currentDetectionObjects);
+  }, [predictedResult]);
+
   return (
-    <View
-      style={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <Image
-        ref={image}
-        source={require('./basketball.jpg')}
-        style={{ width: 200, height: 200 }}
-      />
-      {!isTfReady && <Text>Loading TFJS model...</Text>}
-      {isTfReady && result === '' && <Text>Classifying...</Text>}
-      {result !== '' && <Text>{result}</Text>}
-    </View>
+    <>
+      <StatusBar barStyle="dark-content" />
+      <SafeAreaView style={styles.container}>
+        <Header />
+        <View style={styles.body}>
+          {imageUri === null && (
+            <CameraContainer ref={cameraRef} onCameraReady={() => setIsReadyToCapture(true)} />
+          )}
+          {imageUri !== null && (
+            <View style={styles.imageContainer}>
+              {detectionObjects &&
+                detectionObjects.map((obj, idx) => (
+                  <DetectedBox
+                    key={idx}
+                    x={obj.bbox[0]}
+                    y={obj.bbox[1]}
+                    width={obj.bbox[2]}
+                    height={obj.bbox[3]}
+                    score={obj.score}
+                    label={obj.label}
+                  />
+                ))}
+              <Image source={{ uri: imageUri }} style={styles.image} />
+            </View>
+          )}
+          <ControlPanel
+            imageUri={imageUri}
+            isInferencing={isInferencing}
+            model={model}
+            onRefreshButtonPress={onRefreshButtonPress}
+            onShootButtonPress={onShootButtonPress}
+            onInferenceButtonPress={onInferenceButtonPress}
+          />
+        </View>
+      </SafeAreaView>
+    </>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    height: '100%',
+    flex: 1,
+  },
+  body: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  imageContainer: {
+    justifyContent: 'center',
+  },
+  image: {
+    width: imageWidth,
+    height: imageWidth,
+  },
+});
 
 export default App;
