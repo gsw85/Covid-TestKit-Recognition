@@ -2,6 +2,10 @@ import {StatusBar} from 'expo-status-bar'
 import React from 'react'
 import {StyleSheet, Text, View, TouchableOpacity, Alert, ImageBackground, Image} from 'react-native'
 import {Camera} from 'expo-camera'
+import * as FileSystem from "expo-file-system"
+import * as tf from "@tensorflow/tfjs"
+import {decodeJpeg} from "@tensorflow/tfjs-react-native"
+import * as ImageManipulator from "expo-image-manipulator"
 let camera: Camera
 export default function App() {
   const [startCamera, setStartCamera] = React.useState(false)
@@ -9,9 +13,12 @@ export default function App() {
   const [capturedImage, setCapturedImage] = React.useState<any>(null)
   const [cameraType, setCameraType] = React.useState(Camera.Constants.Type.back)
   const [flashMode, setFlashMode] = React.useState('off')
+  const [isTfReady, setIsTfReady] = React.useState(false);
 
   const __startCamera = async () => {
     const {status} = await Camera.requestCameraPermissionsAsync()
+    await tf.ready();
+    setIsTfReady(true);
     console.log(status)
     if (status === 'granted') {
       setStartCamera(true)
@@ -20,11 +27,21 @@ export default function App() {
     }
   }
   const __takePicture = async () => {
-    const photo: any = await camera.takePictureAsync()
-    console.log(photo)
+    const photo: any = await camera.takePictureAsync({quality: 0.8, base64:false, exif: false, skipProcessing: false})
+    const resized_photo = await ImageManipulator.manipulateAsync(photo.uri, [{ resize: { width: 640 } }])
+    const imageUri = resized_photo.uri
+    const imgB64 = await FileSystem.readAsStringAsync(imageUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    const imgBuffer = tf.util.encodeString(imgB64, 'base64').buffer;
+    const raw = new Uint8Array(imgBuffer)  
+    const imageTensor = decodeJpeg(raw);
+    console.log(imageTensor)
+
+  
     setPreviewVisible(true)
     //setStartCamera(false)
-    setCapturedImage(photo)
+    setCapturedImage(resized_photo)
   }
   const __savePhoto = () => {}
   const __retakePicture = () => {
