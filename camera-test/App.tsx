@@ -1,11 +1,14 @@
 import {StatusBar} from 'expo-status-bar'
-import React from 'react'
+import React, {useEffect} from 'react'
 import {StyleSheet, Text, View, TouchableOpacity, Alert, ImageBackground, Image} from 'react-native'
 import {Camera} from 'expo-camera'
 import * as FileSystem from "expo-file-system"
 import * as tf from "@tensorflow/tfjs"
-import {decodeJpeg} from "@tensorflow/tfjs-react-native"
+import {bundleResourceIO, decodeJpeg} from "@tensorflow/tfjs-react-native"
 import * as ImageManipulator from "expo-image-manipulator"
+import { loadGraphModel } from '@tensorflow/tfjs'
+import {modelJSON, modelWeights} from "./src/constants/metrics"
+
 let camera: Camera
 export default function App() {
   const [startCamera, setStartCamera] = React.useState(false)
@@ -14,11 +17,10 @@ export default function App() {
   const [cameraType, setCameraType] = React.useState(Camera.Constants.Type.back)
   const [flashMode, setFlashMode] = React.useState('off')
   const [isTfReady, setIsTfReady] = React.useState(false);
+  const [model, setModel] = React.useState<tf.GraphModel | null>(null);
 
   const __startCamera = async () => {
-    const {status} = await Camera.requestCameraPermissionsAsync()
-    await tf.ready();
-    setIsTfReady(true);
+    const {status} = await Camera.requestCameraPermissionsAsync();
     console.log(status)
     if (status === 'granted') {
       setStartCamera(true)
@@ -43,6 +45,22 @@ export default function App() {
     //setStartCamera(false)
     setCapturedImage(resized_photo)
   }
+
+  useEffect(() => {
+    const loadModel = async () => {
+      try {
+        await tf.ready();
+        setIsTfReady(true)
+        const loadedModel = await loadGraphModel(bundleResourceIO(modelJSON, modelWeights));
+        setModel(loadedModel);
+      } catch (error) {
+        Alert.alert('', error, [{ text: 'close', onPress: () => null }]);
+      }
+    };
+
+    loadModel();
+  }, []);
+
   const __savePhoto = () => {}
   const __retakePicture = () => {
     setCapturedImage(null)
