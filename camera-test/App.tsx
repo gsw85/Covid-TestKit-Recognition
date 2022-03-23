@@ -8,6 +8,7 @@ import {bundleResourceIO, decodeJpeg} from "@tensorflow/tfjs-react-native"
 import * as ImageManipulator from "expo-image-manipulator"
 import { loadGraphModel } from '@tensorflow/tfjs'
 import {modelJSON, modelWeights} from "./src/constants/metrics"
+import {Prediction} from "./src/types/inference"
 
 let camera: Camera
 export default function App() {
@@ -18,6 +19,43 @@ export default function App() {
   const [flashMode, setFlashMode] = React.useState('off')
   const [isTfReady, setIsTfReady] = React.useState(false);
   const [model, setModel] = React.useState<tf.GraphModel | null>(null);
+  const [predictedResult, setPredictedResult] = React.useState<Prediction>({
+    boxes: [[[]]],
+    scores: [[]],
+    classes: new Int32Array(),
+  });
+
+
+  const inference = async(imageTensor: tf.Tensor3D) => {
+    // console.log("imgTensor", imageTensor)
+    // console.log("model", model)
+    if(!model) return;
+    if (!imageTensor) return;
+    // console.log("model", model)
+    // console.log('imgTensor', imageTensor)
+    try {
+      tf.engine().startScope();
+      console.log('inference begin');
+      const startTime = new Date().getTime();
+      const predictions: tf.Tensor<tf.Rank>[] = (await model.executeAsync(
+        tf.cast(imageTensor.transpose([0, 1, 2]).expandDims(), "float32"),
+      )) as tf.Tensor<tf.Rank>[];
+      const endTime = new Date().getTime();
+      console.log(`inference end, ETC: ${endTime - startTime}ms`);
+
+      console.log("predictions", predictions)
+
+      // const boxes = predictions[5].arraySync() as number[][][];
+      // const scores = predictions[1].arraySync() as number[][];
+      // const classes = predictions[0].dataSync<'int32'>();
+      // console.log({ boxes, scores, classes })
+      // setPredictedResult({ boxes, scores, classes });
+    } catch (error) {
+      console.log(error)
+    } finally {
+      tf.engine().endScope();
+    }
+  }
 
   const __startCamera = async () => {
     const {status} = await Camera.requestCameraPermissionsAsync();
@@ -30,7 +68,7 @@ export default function App() {
   }
   const __takePicture = async () => {
     const photo: any = await camera.takePictureAsync({quality: 0.8, base64:false, exif: false, skipProcessing: false})
-    const resized_photo = await ImageManipulator.manipulateAsync(photo.uri, [{ resize: { width: 640 } }])
+    const resized_photo = await ImageManipulator.manipulateAsync(photo.uri, [{ resize: { width: 640, height: 640 } }])
     const imageUri = resized_photo.uri
     const imgB64 = await FileSystem.readAsStringAsync(imageUri, {
       encoding: FileSystem.EncodingType.Base64,
@@ -38,9 +76,7 @@ export default function App() {
     const imgBuffer = tf.util.encodeString(imgB64, 'base64').buffer;
     const raw = new Uint8Array(imgBuffer)  
     const imageTensor = decodeJpeg(raw);
-    console.log(imageTensor)
-
-  
+    await inference(imageTensor) 
     setPreviewVisible(true)
     //setStartCamera(false)
     setCapturedImage(resized_photo)
@@ -53,6 +89,9 @@ export default function App() {
         setIsTfReady(true)
         const loadedModel = await loadGraphModel(bundleResourceIO(modelJSON, modelWeights));
         setModel(loadedModel);
+        if(loadedModel){
+          console.log("model is loaded")
+        }
       } catch (error) {
         Alert.alert('', error, [{ text: 'close', onPress: () => null }]);
       }
