@@ -4680,6 +4680,11 @@ react-native-fs@2.14.1:
     base-64 "^0.1.0"
     utf8 "^2.1.1"
 
+react-native-opencv3@^1.0.8:
+  version "1.0.8"
+  resolved "https://registry.yarnpkg.com/react-native-opencv3/-/react-native-opencv3-1.0.8.tgz#6511cb3d678b99efdffc18e79121b155c4e9272d"
+  integrity sha512-v+tiiAtP0HAks7EwznmHvgMtdabAjJOURzmdV5OKSQpmf2zHHDyuCr5N3G3tX24x80wRX0YGpE4N4vh5lonegQ==
+
 react-native-web@0.17.1:
   version "0.17.1"
   resolved "https://registry.yarnpkg.com/react-native-web/-/react-native-web-0.17.1.tgz#90d473c89dd99b88bc9830b2a9fcdd2fc5f04902"

@@ -11,6 +11,8 @@ import {modelJSON, modelWeights} from "./src/constants/metrics"
 import {Prediction} from "./src/types/inference"
 
 let camera: Camera
+const names = ['positive', 'negative', 'invalid-empty', 'invalid-smudge']
+
 export default function App() {
   const [startCamera, setStartCamera] = React.useState(false)
   const [previewVisible, setPreviewVisible] = React.useState(false)
@@ -48,24 +50,6 @@ export default function App() {
   const letterbox = async(imageTensor: tf.Tensor3D, new_shape: Array<number>, borderColor: Array<number>, scaleup: boolean) => {
     try {
       tf.engine().startScope();
-      // inference
-      // console.log('inference begin');
-      // const startTime = new Date().getTime();
-      // const predictions: tf.Tensor<tf.Rank>[] = (await model.executeAsync(
-      //   tf.cast(imageTensor.transpose([0, 1, 2]).expandDims(), "float32"),
-      // )) as tf.Tensor<tf.Rank>[];
-      // const endTime = new Date().getTime();
-      // console.log(`inference end, ETC: ${endTime - startTime}ms`);
-
-      // console.log("predictions", predictions)
-
-      // const boxes = predictions[5].arraySync() as number[][][];
-      // const scores = predictions[1].arraySync() as number[][];
-      // const classes = predictions[0].dataSync<'int32'>();
-      // console.log({ boxes, scores, classes })
-      // setPredictedResult({ boxes, scores, classes });
-
-
       //letterbox
       // const input_tensor =  imageTensor.arraySync()
       const shape = [imageTensor.shape[0], imageTensor.shape[1]];
@@ -83,12 +67,59 @@ export default function App() {
       var dh = dh / 2;
 
       const reversedShape = reverse(shape);
-      // if(!(reversedShape === new_unpad)){
+      if(!(reversedShape === new_unpad)){
+        imageTensor = tf.image.resizeBilinear(imageTensor, [new_unpad[0], new_unpad[1]])
+      }
 
-      // }
+      const top = Math.floor(Math.round(dh - 0.1))
+      const bottom = Math.floor(Math.round(dh + 0.1))
+      const left = Math.floor(Math.round(dw - 0.1))
+      const right = Math.floor(Math.round(dw + 0.1))
+
+      // imageTensor.pad()
+
+
 
       console.log("shape", shape);
       console.log("reversedShape", reversedShape)
+
+    } catch (error) {
+      console.log(error)
+    } finally {
+      tf.engine().endScope();
+    }
+  }
+
+  const inference = async(imageTensor: tf.Tensor3D) => {
+    try {
+      tf.engine().startScope();
+      // inference
+      console.log('inference begin');
+      const startTime = new Date().getTime();
+      const predictions: tf.Tensor<tf.Rank>[] = (await model.executeAsync(
+        tf.cast(imageTensor.transpose([0, 1, 2]).div(255.0).expandDims(), "float32"),
+      )) as tf.Tensor<tf.Rank>[];
+      const endTime = new Date().getTime();
+      console.log(`inference end, ETC: ${endTime - startTime}ms`);
+
+      const [boxes, scores, classes, valid_detections] = predictions;
+      const boxes_data = boxes.dataSync();
+      const scores_data = scores.dataSync();
+      const classes_data = classes.dataSync();
+      const valid_detections_data = valid_detections.dataSync()[0];
+
+      tf.dispose(predictions)
+      var i;
+      for (i = 0; i < valid_detections_data; ++i){
+        let [x1, y1, , ] = boxes_data.slice(i * 4, (i + 1) * 4);
+      
+        const klass = names[classes_data[i]];
+        const score = scores_data[i].toFixed(2);
+
+        // Draw the text last to ensure it's on top.
+        console.log("klass: ", klass, "score: ", score)
+      }
+
 
     } catch (error) {
       console.log(error)
@@ -108,7 +139,8 @@ export default function App() {
   }
   const __takePicture = async () => {
     const photo: any = await camera.takePictureAsync({quality: 0.8, base64:false, exif: false, skipProcessing: false})
-    const resized_photo = await ImageManipulator.manipulateAsync(photo.uri, [{ resize: { width: 640 } }])
+    //tf load
+    const resized_photo = await ImageManipulator.manipulateAsync(photo.uri, [{ resize: { width: 640, height: 640} }])
     const imageUri = resized_photo.uri
     const imgB64 = await FileSystem.readAsStringAsync(imageUri, {
       encoding: FileSystem.EncodingType.Base64,
@@ -117,8 +149,9 @@ export default function App() {
     const raw = new Uint8Array(imgBuffer)  
     const imageTensor = decodeJpeg(raw);
     //start letter box here
+    // await letterbox(imageTensor, [640, 640], [114, 114, 114], true) 
+    await inference(imageTensor)
 
-    await letterbox(imageTensor, [640, 640], [114, 114, 114], true) 
     setPreviewVisible(true)
     //setStartCamera(false)
     setCapturedImage(resized_photo)
@@ -129,11 +162,11 @@ export default function App() {
       try {
         await tf.ready();
         setIsTfReady(true)
-        // const loadedModel = await loadGraphModel(bundleResourceIO(modelJSON, modelWeights));
-        // setModel(loadedModel);
-        // if(loadedModel){
-        //   console.log("model is loaded")
-        // }
+        const loadedModel = await loadGraphModel(bundleResourceIO(modelJSON, modelWeights));
+        setModel(loadedModel);
+        if(loadedModel){
+          console.log("model is loaded")
+        }
       } catch (error) {
         Alert.alert('', error, [{ text: 'close', onPress: () => null }]);
       }
