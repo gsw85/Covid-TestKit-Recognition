@@ -6,7 +6,7 @@ import * as FileSystem from "expo-file-system"
 import * as tf from "@tensorflow/tfjs"
 import {bundleResourceIO, decodeJpeg} from "@tensorflow/tfjs-react-native"
 import * as ImageManipulator from "expo-image-manipulator"
-import { loadGraphModel, min } from '@tensorflow/tfjs'
+import { loadGraphModel, min, squeeze } from '@tensorflow/tfjs'
 import {modelJSON, modelWeights} from "./src/constants/metrics"
 import {Prediction} from "./src/types/inference"
 
@@ -47,9 +47,8 @@ export default function App() {
 }
 
 
-  const letterbox = async(imageTensor: tf.Tensor3D, new_shape: Array<number>, borderColor: Array<number>, scaleup: boolean) => {
+  const letterbox = async(imageTensor: tf.Tensor3D, new_shape: Array<number>, scaleup: boolean) => {
     try {
-      tf.engine().startScope();
       //letterbox
       // const input_tensor =  imageTensor.arraySync()
       const shape = [imageTensor.shape[0], imageTensor.shape[1]];
@@ -68,7 +67,7 @@ export default function App() {
 
       const reversedShape = reverse(shape);
       if(!(reversedShape === new_unpad)){
-        imageTensor = tf.image.resizeBilinear(imageTensor, [new_unpad[0], new_unpad[1]])
+        imageTensor = tf.image.resizeBilinear(imageTensor, [new_unpad[1], new_unpad[0]])
       }
 
       const top = Math.floor(Math.round(dh - 0.1))
@@ -76,23 +75,25 @@ export default function App() {
       const left = Math.floor(Math.round(dw - 0.1))
       const right = Math.floor(Math.round(dw + 0.1))
 
-      // imageTensor.pad()
+      const splitted_tensors = tf.split(imageTensor, 3, 2)
+      const output_tensor = []
+      for (var i=0; i<splitted_tensors.length; i++){
+        const squeezed_last_axis =  splitted_tensors[i].squeeze([2])
+        output_tensor.push(tf.pad(squeezed_last_axis, [[top, bottom], [left, right]]))
+      }
 
-
-
-      console.log("shape", shape);
-      console.log("reversedShape", reversedShape)
+      const im_out = tf.stack(output_tensor).transpose([2, 1, 0])
+      return im_out
 
     } catch (error) {
       console.log(error)
-    } finally {
-      tf.engine().endScope();
     }
   }
 
-  const inference = async(imageTensor: tf.Tensor3D) => {
+  const inference = async(imageTensor: any) => {
+    if (!imageTensor) return;
+    if (!model) return;
     try {
-      tf.engine().startScope();
       // inference
       console.log('inference begin');
       const startTime = new Date().getTime();
@@ -108,7 +109,6 @@ export default function App() {
       const classes_data = classes.dataSync();
       const valid_detections_data = valid_detections.dataSync()[0];
 
-      tf.dispose(predictions)
       var i;
       for (i = 0; i < valid_detections_data; ++i){
         let [x1, y1, , ] = boxes_data.slice(i * 4, (i + 1) * 4);
@@ -123,8 +123,6 @@ export default function App() {
 
     } catch (error) {
       console.log(error)
-    } finally {
-      tf.engine().endScope();
     }
   }
 
@@ -140,7 +138,8 @@ export default function App() {
   const __takePicture = async () => {
     const photo: any = await camera.takePictureAsync({quality: 0.8, base64:false, exif: false, skipProcessing: false})
     //tf load
-    const resized_photo = await ImageManipulator.manipulateAsync(photo.uri, [{ resize: { width: 640, height: 640} }])
+    const resized_photo = await ImageManipulator.manipulateAsync(photo.uri, [{ resize: { width: 640} }])
+
     const imageUri = resized_photo.uri
     const imgB64 = await FileSystem.readAsStringAsync(imageUri, {
       encoding: FileSystem.EncodingType.Base64,
@@ -149,8 +148,8 @@ export default function App() {
     const raw = new Uint8Array(imgBuffer)  
     const imageTensor = decodeJpeg(raw);
     //start letter box here
-    // await letterbox(imageTensor, [640, 640], [114, 114, 114], true) 
-    await inference(imageTensor)
+    const resizedTensor = await letterbox(imageTensor, [640, 640], true) 
+    await inference(resizedTensor)
 
     setPreviewVisible(true)
     //setStartCamera(false)
