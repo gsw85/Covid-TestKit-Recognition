@@ -49,6 +49,7 @@ export default function App() {
 
   const letterbox = async(imageTensor: tf.Tensor3D, new_shape: Array<number>, scaleup: boolean) => {
     try {
+      
       //letterbox
       // const input_tensor =  imageTensor.arraySync()
       const shape = [imageTensor.shape[0], imageTensor.shape[1]];
