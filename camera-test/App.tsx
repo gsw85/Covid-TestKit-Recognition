@@ -27,10 +27,6 @@ export default function App() {
     classes: new Int32Array(),
   });
 
-  // const reverse = async(inputShape: any, n: number) =>{
-
-  // }
-
   function reverse(input_arr: Array<number>) {
     var arr = input_arr
     var start = 0 
@@ -51,7 +47,6 @@ export default function App() {
     try {
       
       //letterbox
-      // const input_tensor =  imageTensor.arraySync()
       const shape = [imageTensor.shape[0], imageTensor.shape[1]];
       var r = Math.min( new_shape[0] / shape[0], new_shape[1] / shape[1]);
       if (!scaleup){
@@ -83,7 +78,7 @@ export default function App() {
         output_tensor.push(tf.pad(squeezed_last_axis, [[top, bottom], [left, right]]))
       }
 
-      const im_out = tf.stack(output_tensor).transpose([2, 1, 0])
+      const im_out = tf.stack(output_tensor, 2)
       return im_out
 
     } catch (error) {
